@@ -1,0 +1,57 @@
+# Script to map old deployment IDs to new deployment IDs for dataset image renaming
+# (multiple images per deployment).
+#
+# Assumes:
+# 1. One CSV containing deployment IDs from the metadata, with:
+#    - old_id
+#    - deployment_id (manually updated new ID)
+# 2. A second CSV containing:
+#    - filename
+#    - old_id
+#
+# Renaming is performed in:
+# EnviroSegment/pre-processing/dataset-rename
+
+import os
+import pandas as pd
+
+# ----------------------------
+# CONFIG (EDIT THESE)
+# ----------------------------
+CSV1_PATH = r"directory-1.csv"  # Contains old_id and deployment_id
+CSV2_PATH = r"directory-2.csv"  # Contains filename and old_id
+
+KEY_COL = "old_id"
+VALUE_COL = "deployment_id"
+
+OUT_DIR = r"output-directory"
+OUT_NAME = r"output-directory\data.csv"
+# ----------------------------
+
+os.makedirs(OUT_DIR, exist_ok=True)
+
+df1 = pd.read_csv(CSV1_PATH, dtype=str)
+df2 = pd.read_csv(CSV2_PATH, dtype=str)
+
+# Keep only the mapping columns and de-duplicate by key (first occurrence wins)
+map_df = (
+    df1[[KEY_COL, VALUE_COL]]
+    .dropna(subset=[KEY_COL])
+    .drop_duplicates(subset=[KEY_COL], keep="first")
+)
+
+# Left join: keep all rows from csv2 and bring in deployment_id where old_id matches
+out = df2.merge(map_df, on=KEY_COL, how="left", suffixes=("", "_from_csv1"))
+
+# If csv2 already has a deployment_id column, fill missing values only
+if VALUE_COL in df2.columns:
+    out[VALUE_COL] = out[VALUE_COL].fillna(out[f"{VALUE_COL}_from_csv1"])
+    out = out.drop(columns=[f"{VALUE_COL}_from_csv1"])
+
+out_path = os.path.join(OUT_DIR, OUT_NAME)
+out.to_csv(out_path, index=False)
+print("Saved:", out_path)
+
+# Optional quick report
+matched = out[VALUE_COL].notna().sum()
+print(f"Rows in csv2: {len(out)} | deployment_id filled: {matched}")
