@@ -1,0 +1,43 @@
+# Script to crop all camera trap images within a directory
+# Script crops header and footer from Reconyx HC500 Hyperfire , Reconyx HC600 Hyperfire, and  Cuddeback C2 camera traps
+
+
+from PIL import Image, ImageFile
+import os
+
+# Allow loading truncated images
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+# Set input and output directories
+input_dir = r"input-directory"
+output_dir = r"output-directory"
+os.makedirs(output_dir, exist_ok=True)
+
+# Crop parameters
+crop_top = 35
+crop_bottom = 120
+
+# Walk through all subdirectories
+for root, _, files in os.walk(input_dir):
+    for filename in files:
+        if filename.lower().endswith(('.png', '.jpg', '.jpeg', ".JPG", ".JPEG")):
+            input_path = os.path.join(root, filename)
+            # Construct relative path and output path
+            relative_path = os.path.relpath(root, input_dir)
+            output_subdir = os.path.join(output_dir, relative_path)
+            os.makedirs(output_subdir, exist_ok=True)
+            output_path = os.path.join(output_subdir, filename)
+
+            try:
+                with Image.open(input_path) as img:
+                    width, height = img.size
+                    if height > (crop_top + crop_bottom):
+                        crop_box = (0, crop_top, width, height - crop_bottom)
+                        cropped_img = img.crop(crop_box)
+                        cropped_img.save(output_path)
+                    else:
+                        print(f"Skipping {input_path}: image too small to crop.")
+            except Exception as e:
+                print(f"Failed to process {input_path}: {e}")
+
+print("Cropping completed.")
