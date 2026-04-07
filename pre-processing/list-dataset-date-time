@@ -1,0 +1,89 @@
+# Script to create a CSV listing image filenames and their corresponding acquisition date.
+# Dates are extracted from EXIF metadata when available, otherwise the file modified time is used.
+#
+# Note: Dates are formatted as "%Y&%m&%d" to prevent Excel from automatically
+# converting values to date format. After constructing filenames, you can replace
+# "&" with "-" if needed.
+
+import os
+from pathlib import Path
+from datetime import datetime
+
+import pandas as pd
+from PIL import Image, ExifTags
+
+# ==========================
+# SETTINGS
+# ==========================
+IMAGE_FOLDER = r"dataset-folder"   # folder containing the images
+OUT_CSV = r"dataset-output.csv"    # output CSV file
+FILENAME_COLUMN = "Filename"
+DATE_COLUMN = "date"
+PREFER_EXIF = True  # True: use EXIF capture date if available
+
+# ==========================
+# EXIF SETUP
+# ==========================
+EXIF_TAGS = {v: k for k, v in ExifTags.TAGS.items()}
+TAG_DATETIME_ORIGINAL = EXIF_TAGS.get("DateTimeOriginal")
+TAG_DATETIME = EXIF_TAGS.get("DateTime")
+
+def get_capture_date_yyyymmdd(img_path: Path) -> str | None:
+    """
+    Returns capture date as YYYY&MM&DD from EXIF when available,
+    otherwise file modified time.
+    """
+    # 1) EXIF capture date (preferred)
+    if PREFER_EXIF:
+        try:
+            with Image.open(img_path) as im:
+                exif = im.getexif()
+                if exif:
+                    dt_str = None
+                    if TAG_DATETIME_ORIGINAL and TAG_DATETIME_ORIGINAL in exif:
+                        dt_str = exif.get(TAG_DATETIME_ORIGINAL)
+                    elif TAG_DATETIME and TAG_DATETIME in exif:
+                        dt_str = exif.get(TAG_DATETIME)
+
+                    # EXIF commonly: "YYYY:MM:DD HH:MM:SS"
+                    if isinstance(dt_str, str) and dt_str.strip():
+                        dt = datetime.strptime(dt_str.strip(), "%Y:%m:%d %H:%M:%S")
+                        return dt.strftime("%Y&%m&%d")
+        except Exception:
+            pass  # fall back to filesystem time
+
+    # 2) Filesystem modified time (fallback)
+    try:
+        ts = os.path.getmtime(img_path)
+        dt = datetime.fromtimestamp(ts)
+        return dt.strftime("%Y&%m&%d")
+    except Exception:
+        return None
+
+# ==========================
+# MAIN
+# ==========================
+img_dir = Path(IMAGE_FOLDER)
+
+if not img_dir.exists():
+    raise FileNotFoundError(f"Image folder not found: {img_dir}")
+
+valid_ext = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+image_files = sorted([p for p in img_dir.iterdir() if p.is_file() and p.suffix.lower() in valid_ext])
+
+rows = []
+for img_path in image_files:
+    rows.append({
+        FILENAME_COLUMN: img_path.name,
+        DATE_COLUMN: get_capture_date_yyyymmdd(img_path)
+    })
+
+df = pd.DataFrame(rows)
+
+# Save as CSV
+out_path = Path(OUT_CSV)
+out_path.parent.mkdir(parents=True, exist_ok=True)
+df.to_csv(out_path, index=False)
+
+print(f"Saved CSV: {out_path}")
+print(f"Files processed: {len(df)}")
